@@ -11,6 +11,9 @@ link_directories( ${LLVM_LIB_DIR} )
 Find_Package(Clang REQUIRED)
 include_directories(${CLANG_INCLUDE_DIRS})
 
+Find_Package(Boost 1.50.0)
+include_directories(${BOOST_INCLUDE_DIRS})
+
 add_executable(codebrowser_generator main.cpp projectmanager.cpp annotator.cpp generator.cpp preprocessorcallback.cpp
                filesystem.cpp qtsupport.cpp commenthandler.cpp)
 
@@ -34,7 +37,7 @@ string(REPLACE "svn" "" LLVM_VERSION "${LLVM_VERSION}")
 file(GLOB BUILTINS_HEADERS "${LLVM_BIN_DIR}/../lib/clang/${LLVM_VERSION}/include/*.h")
 foreach(BUILTIN_HEADER ${BUILTINS_HEADERS})
     #filter files that are way to big
-    if(NOT BUILTIN_HEADER MATCHES ".*/(arm_neon.h|altivec.h|vecintrin.h|avx512.*intrin.h)")
+    if(NOT BUILTIN_HEADER MATCHES ".*/(arm_neon.h|altivec.h|vecintrin.h|avx512.*intrin.h|inttypes.h)")
         file(READ ${BUILTIN_HEADER} BINARY_DATA)
         string(REPLACE "\\" "\\\\" BINARY_DATA "${BINARY_DATA}")
         string(REPLACE "\"" "\\\"" BINARY_DATA "${BINARY_DATA}")

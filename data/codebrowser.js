@@ -19,10 +19,13 @@
  * purchasing a commercial licence.
  ****************************************************************************/
 
+/* global root_path */
 if (!data_path) {
     // Previous version of the generator (1.7 and before) did not have data_path defined
     var data_path = root_path + "/../data";
 }
+
+var ref_path = "https://" + window.location.hostname.replace("app", "io") + "/refs/";
 
 //Styles:
 var setStyle = "";
@@ -446,9 +449,13 @@ $(function () {
         var proj = elem.attr("data-proj");
 
         var proj_root_path = root_path;
-        if (proj) { proj_root_path = projects[proj]; }
+        var proj_ref_path = ref_path;
+        if (proj) {
+            proj_root_path = projects[proj];
+            proj_ref_path = proj_root_path + "/refs/";
+        }
 
-        var url = proj_root_path + "/refs/" + ref;
+        var url = proj_ref_path + ref.replace(/[[\.\]]/g, "?") + ".json";
 
         if (!$(this).hasClass("highlight")) {
             highlight_items(ref);
@@ -525,34 +532,36 @@ $(function () {
             } else if (elem.hasClass("typedef")) {
                 type = elem.attr("data-type");
             } else {
-                var res = $("<data>"+data+"</data>");
                 var isType = elem.hasClass("type");
 
                 var typePrefixLen = -1;
 
                 //comments:
                 var seen_comments = [];
-                res.find("doc").each(function() {
-                    var comment = $(this).html();
-                    if ($.inArray(comment, seen_comments) !== -1)
-                        return;
-                    seen_comments.push(comment);
-                    if (comment.length > 550) {
-                        // FIXME: we should not split in an escape code
-                        comment = comment.substr(0, 500) + "<a href='#' class='expandcomment'> [more...]</a><span style='display:none'>" + comment.substr(500) + "</span>";
-                    }
-                    content += "<br/><i>" + comment + "</i>";
-                    var f = $(this).attr("f");
-                    var l = $(this).attr("l");
-                    if (f && l) {
-                        var url = proj_root_path + "/" + f + ".html#" + l;
-                        content += " <a href='" + url +"'>&#8618;</a>";
-                    }
-                });
+                if (data) {
+                    var docs = data.doc || [];
+                    docs.forEach(function(thisDoc) {
+                        var comment = thisDoc.v;
+                        if ($.inArray(comment, seen_comments) !== -1)
+                            return;
+                        seen_comments.push(comment);
+                        if (comment.length > 550) {
+                            // FIXME: we should not split in an escape code
+                            comment = comment.substr(0, 500) + "<a href='#' class='expandcomment'> [more...]</a><span style='display:none'>" + comment.substr(500) + "</span>";
+                        }
+                        content += "<br/><i>" + comment + "</i>";
+                        var f = thisDoc.f;
+                        var l = thisDoc.l;
+                        if (f && l) {
+                            var url = proj_root_path + "/" + f + ".html#" + l;
+                            content += " <a href='" + url +"'>&#8618;</a>";
+                        }
+                    });
+                }
 
                 var p = function (label, tag) {
-                    var d = res.find(tag);
-                    if (!d.length)
+                    var d = data && data[tag];
+                    if (!d || !d.length)
                         return false;
                     content += "<br/>" + label + ": (" + d.length + ")";
                     if (tag === "inh" && symbolUrl && isType) {
@@ -560,12 +569,11 @@ $(function () {
                     }
                     var shouldCompress = d.length > 15;
                     var dict = { number: 0 };
-                    d.each(function() {
-                        var th = $(this);
-                        var f = th.attr("f");
-                        var l = th.attr("l");
-                        var t = th.attr("type");
-                        if (t) {
+                    d.forEach(function(th) {
+                        var f = th.f;
+                        var l = th.l;
+                        if (th.hasOwnProperty("type")) {
+                            var t = th.type;
                             var prefixL = prefixLen(f, file)
                             if (prefixL >= typePrefixLen) {
                                 typePrefixLen = prefixL;
@@ -582,7 +590,7 @@ $(function () {
                             var url = proj_root_path + "/" + f + ".html#" + l;
                             content += "<br/><a href='" + url +"' >" + f + ":" + l + "</a>";
                             if (tag === "ovr" || tag === "inh") {
-                                var c = th.attr("c");
+                                var c = th.c;
                                 if (c)
                                     content += " (" + demangleFunctionName(c) + ")";
                             }
@@ -616,17 +624,17 @@ $(function () {
                 p(isType ? "Inherited by" : "Overriden by", "ovr");
 
                 // Size:
-                var size = res.find("size");
-                if (size.length === 1) {
-                    content += "<br/>Size: " + escape_html(size.text()) + " bytes";
+                var size = data && data.size;
+                if (size) {
+                    content += "<br/>Size: " + escape_html(size) + " bytes";
                 }
-                var offset = res.find("offset");
-                if (offset.length === 1) {
-                    content += "<br/>Offset: " + escape_html(offset.text() >> 3) + " bytes";
+                var offset = data && data.offset;
+                if (offset) {
+                    content += "<br/>Offset: " + escape_html(parseInt(offset) >> 3) + " bytes";
                 }
 
                 // Uses:
-                var uses = res.find("use");
+                var uses = data && data.use || [];
                 if (uses.length) {
                     var href ="#";
                     if (symbolUrl) {
@@ -642,18 +650,17 @@ $(function () {
                     }
                     var dict = { };
                     var usesTypeCount = { };
-                    uses.each(function() {
-                        var t = $(this);
-                        var f = t.attr("f");
-                        var l = t.attr("l");
-                        var c = t.attr("c");
-                        var u = t.attr("u");
+                    uses.forEach(function(t) {
+                        var f = t.f;
+                        var l = t.l;
+                        var c = t.c;
+                        var u = t.u;
                         //if (!u) u = "?"
                         var url = proj_root_path + "/" + f + ".html#" + l;
                         if (!Object.prototype.hasOwnProperty.call(dict, f)) {
                             dict[f] = { elem: $("<li/>").append($("<a/>").attr("href", url).text(f)),
                                         contexts: {},  prefixL: prefixLen(file, f), count: 0,
-                                        f: f, brk: t.attr("brk")
+                                        f: f, brk: t.brk
                             };
                         }
                         c = demangleFunctionName(c)
@@ -755,7 +762,7 @@ $(function () {
         if (ref && !this.tooltip_loaded && !elem.hasClass("local") && !elem.hasClass("tu")
                 && !elem.hasClass("typedef") && !elem.hasClass("lbl")) {
             this.tooltip_loaded = true;
-            $.get(url, function(data) {
+            $.getJSON(url, function(data) {
                 tt.tooltip_data = data;
                 if (tooltip.ref === ref)
                     computeTooltipContent(data, tt.title_, tt.id);
@@ -766,18 +773,17 @@ $(function () {
                     //macro always have the right link already.
                     return;
                 }
-                var res = $("<data>"+data+"</data>");
-                var def =  res.find("def");
-                if (def.length > 0) {
+                var def = data.def;
+                if (def && def.length > 0) {
 
                     var currentLine = elem.parents("tr").find("th").text();
                     //if there are several definition we take the one closer in the hierarchy.
                     var result = {  len: -2, brk: true };
-                    def.each( function() {
+                    def.forEach( function(thisDef) {
                         var cur = { len : -1,
-                                    f : $(this).attr("f"),
-                                    l : $(this).attr("l"),
-                                    brk : $(this).attr("brk") };
+                                    f : thisDef.f,
+                                    l : thisDef.l,
+                                    brk : thisDef.brk}
 
                         if (cur.f === file && cur.l === currentLine)
                             return;
@@ -785,7 +791,7 @@ $(function () {
                         cur.len = prefixLen(cur.f, file)
                         if (result.brk == cur.brk ? (cur.len > result.len) : result.brk) {
                             result = cur;
-                            result.isMarcro = ($(this).attr("macro"));
+                            result.isMarcro = (thisDef.macro);
                         }
                     });
 
@@ -948,20 +954,19 @@ $(function () {
                 window.location = root_path + '/' +  searchTerms[val].file + ".html";
             } else if (type == "ref") {
                 var ref = searchTerms[val].ref;
-                var url = root_path + "/refs/" + ref;
-                $.get(url, function(data) {
-                    var res = $("<data>"+data+"</data>");
-                    var def =  res.find("def");
+                var url = ref_path + ref.replace(/[[\.\]]/g, "?") + ".json";
+                $.getJSON(url, function(data) {
+                    var def =  data.def || [];
                     var result = {  len: -1 };
-                    def.each( function() {
+                    def.forEach( function(thisDef) {
                         var cur = { len : -1,
-                                    f : $(this).attr("f"),
-                                    l : $(this).attr("l") }
+                                    f : thisDef.f,
+                                    l : thisDef.l }
 
                         cur.len = prefixLen(cur.f, file)
                         if (cur.len >= result.len) {
                             result = cur;
-                            result.isMarcro = ($(this).attr("macro"));
+                            result.isMarcro = (thisDef.macro);
                         }
                     });
 

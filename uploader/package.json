@@ -1,0 +1,19 @@
+{
+  "name": "uploader",
+  "version": "1.0.0",
+  "description": "upload ref data to firebase",
+  "main": "upload.js",
+  "scripts": {
+    "test": "upload.js $REF"
+  },
+  "keywords": [
+    "firebase",
+    "woboq"
+  ],
+  "author": "Lamora",
+  "license": "ISC",
+  "dependencies": {
+    "firebase": "^3.4.0",
+    "jsonfile": "^2.4.0"
+  }
+}

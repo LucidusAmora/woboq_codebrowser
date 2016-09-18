@@ -38,11 +38,6 @@
 #include <clang/Sema/Sema.h>
 #include <clang/Tooling/Tooling.h>
 
-#include <iostream>
-#include <sstream>
-#include <fstream>
-#include <time.h>
-
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/ADT/SmallString.h>
 #include <llvm/Support/FileSystem.h>
@@ -50,6 +45,17 @@
 
 #include "stringbuilder.h"
 #include "projectmanager.h"
+
+namespace boost
+{
+    void throw_exception( std::exception const & ) { }
+}
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/json_parser.hpp>
+#include <iostream>
+#include <sstream>
+#include <fstream>
+#include <time.h>
 
 namespace
 {
@@ -321,13 +327,23 @@ bool Annotator::generate(clang::Sema &Sema, bool WasInDatabase)
             continue;
         }
 #else
-        std::error_code error_code;
-        llvm::raw_fd_ostream myfile(filename, error_code, llvm::sys::fs::F_Append);
-        if (error_code) {
-            std::cerr << error_code.message() << std::endl;
-            continue;
+        
+        {
+            std::error_code error_code;
+            llvm::raw_fd_ostream myfile(filename, error_code, llvm::sys::fs::F_Append);
+            if (error_code) {
+                std::cerr << error_code.message() << std::endl;
+                continue;
+            }
         }
 #endif
+        using namespace boost::property_tree;
+        ptree root;
+        size_t filesize;
+        llvm::sys::fs::file_size(filename, filesize);
+        if (filesize > 1) {
+            read_json(filename, root);
+        }
         for (const auto &it2 : it.second) {
             clang::SourceLocation loc = it2.loc;
             clang::SourceManager &sm = getSourceMgr();
@@ -374,59 +390,74 @@ bool Annotator::generate(clang::Sema &Sema, bool WasInDatabase)
                 case Inherit:
                     tag = "inh";
             }
-            myfile << "<" << tag << " f='";
-            Generator::escapeAttr(myfile, fn);
-            myfile << "' l='"<<  fixed.getLine()  <<"'";
-            if (loc.isMacroID()) myfile << " macro='1'";
-            if (!WasInDatabase) myfile << " brk='1'";
-            if (usetype) myfile << " u='" << usetype << "'";
+            if (!root.get_child_optional(tag))
+                root.add_child(tag, ptree{});
+            ptree refTree;
+            refTree.put("f", fn);
+            refTree.put("l", fixed.getLine());
+            if (loc.isMacroID()) {
+                refTree.put("macro", 1);
+            }
+            if (!WasInDatabase) {
+                refTree.put("brk", 1);
+            }
+            if (usetype) {
+                refTree.put("u", usetype);
+            }
             const auto &refType = it2.typeOrContext;
             if (!refType.empty()) {
-                myfile << ((it2.what < Use) ? " type='" : " c='");
-                Generator::escapeAttr(myfile, refType);
-                myfile <<"'";
+                refTree.put(it2.what < Use ? "type" : "c", refType);
             }
-            myfile <<"/>\n";
+            root.get_child(tag).push_back(std::make_pair("", refTree));
         }
         auto itS = structure_sizes.find(it.first);
         if (itS != structure_sizes.end() && itS->second != -1) {
-            myfile << "<size>"<< itS->second <<"</size>\n";
+            root.put("size", itS->second);
         }
         auto itF = field_offsets.find(it.first);
         if (itF != field_offsets.end() && itF->second != -1) {
-            myfile << "<offset>"<< itF->second <<"</offset>\n";
+            root.put("offset", itF->second);
         }
         auto range =  commentHandler.docs.equal_range(it.first);
-        for (auto it2 = range.first; it2 != range.second; ++it2) {
-            clang::SourceManager &sm = getSourceMgr();
-            clang::SourceLocation exp = sm.getExpansionLoc(it2->second.loc);
-            clang::PresumedLoc fixed = sm.getPresumedLoc(exp);
-            std::string fn = htmlNameForFile(sm.getFileID(exp));
-            myfile << "<doc f='";
-            Generator::escapeAttr(myfile, fn);
-            myfile << "' l='" << fixed.getLine() << "'>";
-            Generator::escapeAttr(myfile, it2->second.content);
-            myfile << "</doc>\n";
+        if (range.first != range.second) {
+            ptree docs;
+            for (auto it2 = range.first; it2 != range.second; ++it2) {
+                ptree doc;
+                clang::SourceManager &sm = getSourceMgr();
+                clang::SourceLocation exp = sm.getExpansionLoc(it2->second.loc);
+                clang::PresumedLoc fixed = sm.getPresumedLoc(exp);
+                std::string fn = htmlNameForFile(sm.getFileID(exp));
+                doc.put("f", fn);
+                doc.put("l", fixed.getLine());
+                doc.put("v", it2->second.content);
+                docs.push_back(std::make_pair("", doc));
+            }
+            root.add_child("doc", docs);
         }
         auto itU = sub_refs.find(it.first);
         if (itU != sub_refs.end()) {
             for (const auto &sub : itU->second) {
+                const char *tag;
                 switch (sub.what) {
-                    case SubRef::Function: myfile << "<fun "; break;
-                    case SubRef::Member: myfile << "<mbr "; break;
-                    case SubRef::Static: myfile << "<smbr "; break;
+                    case SubRef::Function: tag = "fun"; break;
+                    case SubRef::Member: tag = "mbr"; break;
+                    case SubRef::Static: tag = "smbr"; break;
                     case SubRef::None: continue; // should not happen
                 }
+                if (!root.get_child_optional(tag))
+                    root.add_child(tag, ptree{});
+                ptree refTree;
                 const auto &r = sub.ref;
-                myfile << "r='" << Generator::EscapeAttr{r} << "'";
+                refTree.put("r", r);
                 auto itF = field_offsets.find(r);
                 if (itF != field_offsets.end() && itF->second != -1)
-                    myfile << " o='" << itF->second << "'";
+                    refTree.put("o", itF->second);
                 if (!sub.type.empty())
-                    myfile << " t='" << Generator::EscapeAttr{sub.type} << "'";
-                myfile << "/>\n";
+                    refTree.put("t", sub.type);
+                root.get_child(tag).push_back(std::make_pair("", refTree));
             }
         }
+        write_json(filename, root);
     }
 
     // now the function names

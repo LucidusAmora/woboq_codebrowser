@@ -148,7 +148,9 @@ function getParameterByName(name) {
     if(root_path.substr(-1) === '/') { // remove trailing slash
         root_path = root_path.substr(0, root_path.length - 1);
     }
+    var ref_path = "https://" + window.location.hostname.replace("app", "io") + "/refs/";
     var proj_root_path = root_path;
+    var proj_ref_path = ref_path;
     var ref = getParameterByName("ref");
     var file = "";
 
@@ -157,24 +159,26 @@ function getParameterByName(name) {
         return;
     }
 
-    var url = proj_root_path + "/refs/" + ref;
+    var url = ref_path + ref.replace(/[[\.\]]/g, "?") + ".json";
 
-
-    $.get(url, function(data) {
+    $.getJSON(url, function(data) {
         var type ="", content ="";
         var res = $("<data>"+data+"</data>");
 
         content += "<h2>" + escape_html(demangleFunctionName(ref)) + "</h2>";
 
-        var types = res.find("[type]");
-        if (types.length) {
-            content += "<h3>Type</h3>";
-            types.each(function() {
-                var t = $(this).attr("type");
-                content += "<p class='code'><span class='type'>" + escape_html(t) + "</span></p>";
+        if (data.dec) {
+            data.dec.forEach(function(thisDec) {
+               if (thisDec.hasOwnProperty("type"))
+                   content += "<p class='code'><span class='type'>" + escape_html(thisDec.type) + "</span></p>";
             });
         }
-
+        if (data.def) {
+            data.def.forEach(function(thisDef) {
+               if (thisDef.hasOwnProperty("type"))
+                   content += "<p class='code'><span class='type'>" + escape_html(thisDef.type) + "</span></p>";
+            });
+        }
 
 
 //BEGIN extracted from the part of computeTooltipContent from codebrowser.js
@@ -183,8 +187,8 @@ function getParameterByName(name) {
 
         //comments:
         var seen_comments = [];
-        res.find("doc").each(function() {
-            var comment = $(this).html();
+        (data.doc || []).forEach(function(thisDoc) {
+            var comment = thisDoc.v;
             if ($.inArray(comment, seen_comments) !== -1)
                 return;
 
@@ -200,8 +204,8 @@ function getParameterByName(name) {
             */
             content += "<i>" + comment + "</i>"; //###
 
-            var f = $(this).attr("f");
-            var l = $(this).attr("l");
+            var f = thisDoc.f;
+            var l = thisDoc.l;
             if (f && l) {
                 var url = proj_root_path + "/" + f + ".html#" + l;
                 content += " <a href='" + url +"'>&#8618;</a>";
@@ -213,19 +217,18 @@ function getParameterByName(name) {
 
 
         var p = function (label, tag) {
-            var d = res.find(tag);
+            var d = data[tag] || [];
             if (!d.length)
                 return;
 //            content += "<br/>" + label + ": (" + d.length + ")"; //###
             content += "<h3>" + label + ": (" + d.length + ")</h3><p>"; //###
             var shouldCompress = d.length > 15;
             var dict = { number: 0 };
-            d.each(function() {
-                var th = $(this);
-                var f = th.attr("f");
-                var l = th.attr("l");
-                var t = th.attr("type");
-                if (t) {
+            d.forEach(function(th) {
+                var f = th.f;
+                var l = th.l;
+                var t = th.type;
+                if (th.hasOwnProperty("type")) {
                     var prefixL = prefixLen(f, file)
                     if (prefixL >= typePrefixLen) {
                         typePrefixLen = prefixL;
@@ -243,7 +246,7 @@ function getParameterByName(name) {
                     var url = proj_root_path + "/" + f + ".html#" + l;
                     content += "<a href='" + url +"' >" + f + ":" + l + "</a>"; //###
                     if (tag === "ovr" || tag === "inh") {
-                        var c = th.attr("c");
+                        var c = th.c;
                         if (c)
                             content += " (" + demangleFunctionName(c) + ")";
                     }
@@ -282,17 +285,17 @@ function getParameterByName(name) {
         p(isType ? "Inherited by" : "Overriden by", "ovr");
 
         // Size:
-        var size = res.find("size");
-        if (size.length === 1) {
-            content += "<br/>Size: " + escape_html(size.text()) + " bytes";
+        var size = data.size;
+        if (size) {
+            content += "<br/>Size: " + escape_html(size) + " bytes";
         }
-        var offset = res.find("offset");
-        if (offset.length === 1) {
-            content += "<br/>Offset: " + escape_html(offset.text() >> 3) + " bytes";
+        var offset = res.offset;
+        if (offset) {
+            content += "<br/>Offset: " + escape_html(parseInt(offset) >> 3) + " bytes";
         }
 
         // Uses:
-        var uses = res.find("use");
+        var uses = data.use || [];
         /* ###
         if (uses.length) {
             content += "<br/><a href='#' class='showuse'>Show Uses:</a> (" + uses.length + ")<br/><span class='uses_placeholder'></span>"
@@ -307,18 +310,17 @@ function getParameterByName(name) {
             */
             var dict = { };
             var usesTypeCount = { };
-            uses.each(function() {
-                var t = $(this);
-                var f = t.attr("f");
-                var l = t.attr("l");
-                var c = t.attr("c");
-                var u = t.attr("u");
+            uses.forEach(function(t) {
+                var f = t.f;
+                var l = t.l;
+                var c = t.c;
+                var u = t.u;
                 //if (!u) u = "?"
                 var url = proj_root_path + "/" + f + ".html#" + l;
                 if (!Object.prototype.hasOwnProperty.call(dict, f)) {
                     dict[f] = { elem: $("<li/>").append($("<a/>").attr("href", url).text(f)),
                                 contexts: {},  prefixL: prefixLen(file, f), count: 0,
-                                f: f, brk: t.attr("brk")
+                                f: f, brk: t.brk
                     };
                 }
                 c = demangleFunctionName(c)
@@ -398,7 +400,7 @@ function getParameterByName(name) {
             else $("<style id='uses_style'>"+style+"</style>").appendTo("head");
         });
 
-        buildInheritenceGraph(ref, res)
+        buildInheritenceGraph(ref, data)
 
         // Jump to anchor:
         if (location.hash)
@@ -440,20 +442,19 @@ function getParameterByName(name) {
                 window.location = root_path + '/' +  searchTerms[val].file + ".html";
             } else if (type == "ref") {
                 var ref = searchTerms[val].ref;
-                var url = root_path + "/refs/" + ref;
-                $.get(url, function(data) {
-                    var res = $("<data>"+data+"</data>");
-                    var def =  res.find("def");
+                var url = ref_path + ref.replace(/[[\.\]]/g, "?") + ".json";
+                $.getJSON(url, function(data) {
+                    var def =  data["def"] || [];
                     var result = {  len: -1 };
-                    def.each( function() {
+                    def.forEach( function(th) {
                         var cur = { len : -1,
-                                    f : $(this).attr("f"),
-                                    l : $(this).attr("l") }
+                                    f : th.f,
+                                    l : th.l}
 
                         cur.len = prefixLen(cur.f, file)
                         if (cur.len >= result.len) {
                             result = cur;
-                            result.isMarcro = ($(this).attr("macro"));
+                            result.isMarcro = th.macro;
                         }
                     });
 
@@ -778,7 +779,7 @@ function getParameterByName(name) {
 
     function expandGraphRec(ref, up, data, max_depth) {
         if (up) classData[ref] = data;
-        var d = data.find(!up ? "ovr" : "inh");
+        var d = data[!up ? "ovr" : "inh"] || [];
         if (d.length >= 30)
             return; // Graph too big
         if (d.length >= 1) {
@@ -786,9 +787,8 @@ function getParameterByName(name) {
         }
         var changed = false;
         waiting++;
-        d.each(function() {
-            var th = $(this);
-            var c = th.attr("c");
+        d.forEach(function(th) {
+            var c = th.c;
             if (c) {
                 //var l = proj_root_path + "/" + escape_html(th.attr("f")) + ".html#" + escape_html(c);
                 var l = "symbol.html?root=" + escape_html(proj_root_path) + "&ref=" + escape_html(c);
@@ -800,12 +800,11 @@ function getParameterByName(name) {
                 changed = true;
                 if (max_depth <= 0 || n.fetched)
                     return;
-                var url = proj_root_path + "/refs/" + c;
+                var url = proj_ref_path + c.replace(/[[\.\]]/g, "?") + ".json";
                 waiting++;
                 n.fetched = true;
-                $.get(url, function(data) {
-                    var res = $("<data>"+data+"</data>");
-                    expandGraphRec(c, up, res, max_depth -1);
+                $.getJSON(url, function(data) {
+                    expandGraphRec(c, up, data, max_depth -1);
                     maybeDraw();
                 }).fail(maybeDraw);
             }
@@ -838,8 +837,8 @@ function getParameterByName(name) {
             if (depth > 255) return;
             // Go in every bases
             var baseOffset2 = baseOffset;
-            data.find("inh").each(function() {
-                var c = $(this).attr("c");
+            (data.inh || []).forEach(function(th) {
+                var c = th.c;
                 if (c && classData[c]) {
                     var baseData = classData[c];
                     var baseSize = parseInt(baseData.find("size").text());
@@ -848,12 +847,11 @@ function getParameterByName(name) {
                         baseOffset2 += baseSize;
                 }
             });
-            data.find("mbr").each(function() {
-                var th = $(this);
-                var o = parseInt(th.attr('o'))/8 + baseOffset;
+            (data.mbr || []).forEach(function(th) {
+                var o = parseInt(th.o)/8 + baseOffset;
                 o = o || "";
-                var r = th.attr('r');
-                var t = th.attr('t');
+                var r = th.r;
+                var t = th.t;
                 html += "<tr data-ref='"+escape_html(r)+"'><th>" + o + "</th><td>"
                     + escape_html(t) + "</td><td><a href='#'>"
                     + escape_html(demangleFunctionName(r)) + "</a></td></tr>";
@@ -862,19 +860,29 @@ function getParameterByName(name) {
         if (classData[ref])
             buildLayoutRecursive(classData[ref], 0, 0);
 
+        var findJ = function(data) {
+            if (data.dec) {
+                for (var dec in data.dec) {
+                    if (dec.f) return dec;
+                }
+            }
+            if (data.def) {
+                for (var def in data.def) {
+                    if (def.f) return def;
+                }
+            }
+        }
         if (html) {
             $("#layout").html("<h3>Class layout</h3><table border='1'>"
                 +"<tr><th>Offset</th><th>Type</th><th>Member</th></tr>"+html+"</table>");
             var getUrl = function(ref, callback) {
-                var url = proj_root_path + "/refs/" + ref;
-                $.get(url, function(data) {
-                    var res = $("<data>"+data+"</data>");
-                    var def =  res.find("dec[f],def[f]");
-                    if (def.length > 0) {
-                        var def = $(def[0]);
-                        var file = def.attr("f");
-                        var line = def.attr("l");
-                        var isMarcro = def.attr("macro");
+                var url = proj_ref_path + ref.replace(/[[\.\]]/g, "?") + ".json";
+                $.getJSON(url, function(data) {
+                    var def =  findJ(data);
+                    if (def) {
+                        var file = def.f;
+                        var line = def.l;
+                        var isMarcro = def.macro;
                         //var brk = def.attr("brk"); //--
                         callback(proj_root_path + "/" + file + ".html#" + (isMarcro ? result.line : ref ));
                     }
