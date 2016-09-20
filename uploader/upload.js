@@ -32,6 +32,11 @@ function uploadDir(macro) {
         var nFiles = files.length;
         if (!macro)
             nFiles--;
+        var aggregated = {};
+        const batch = 2000;
+        var nBatch = Math.floor(nFiles / batch);
+        if (batch * nBatch > nFiles)
+            nBatch++;
         files.forEach(function(file) {
             jsonfile.readFile(path.join(dir, file), function(err, obj) {
                 if (err) {
@@ -39,14 +44,20 @@ function uploadDir(macro) {
                     return;
                 }
                 var nodeName = file.replace(/[[\.\]]/g, "?");
-                (macro ? refM : ref).child(nodeName).set(obj, function() {
-                    if (--nFiles === 0) {
-                        if (!macro)
-                            uploadDir(true);
-                        else
-                            process.exit(0);
-                    }
-                });
+                aggregated[nodeName] = obj;
+                --nFiles;
+                if (nFiles % batch === 0) {
+                    (macro ? refM : ref).update(aggregated, function() {
+                        if (--nBatch === 0) {
+                            if (!macro)
+                                uploadDir(true);
+                            else
+                                process.exit(0);
+                        }
+                        console.log(`${nBatch} batches remaining`);
+                    });
+                    aggregated = {};
+                }
             });
         });
     });
