@@ -25,7 +25,7 @@ $(function() {
     // remove trailing slash
     root_path = root_path.replace(/\/$/, "");
     if(!root_path) root_path = ".";
-
+    var ref_path = "https://" + window.location.hostname.replace("app", "io") + "/refs/";
 
     //compute the length of the common prefix between two strings
     // (copied from codebrowser.js)
@@ -62,20 +62,19 @@ $(function() {
                 window.location = root_path + '/' +  searchTerms[val].file + ".html";
             } else if (type == "ref") {
                 var ref = searchTerms[val].ref;
-                var url = root_path + "/refs/" + ref;
-                $.get(url, function(data) {
-                    var res = $("<data>"+data+"</data>");
-                    var def =  res.find("def");
+                var url = ref_path + ref.replace(/[[\.\]]/g, "?") + ".json";
+                $.getJSON(url, function(data) {
+                    var def =  data.def || [];
                     var result = {  len: -1 };
-                    def.each( function() {
+                    def.forEach( function(thisDef) {
                         var cur = { len : -1,
-                                    f : $(this).attr("f"),
-                                    l : $(this).attr("l") }
+                                    f : thisDef.f,
+                                    l : thisDef.l }
 
                         cur.len = prefixLen(cur.f, file)
                         if (cur.len >= result.len) {
                             result = cur;
-                            result.isMarcro = ($(this).attr("macro"));
+                            result.isMarcro = (thisDef.macro);
                         }
                     });
 
